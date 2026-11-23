@@ -22,6 +22,66 @@ int is_transpose(int M, int N, int A[N][M], int B[M][N]);
 char transpose_submit_desc[] = "Transpose submission";
 void transpose_submit(int M, int N, int A[N][M], int B[M][N])
 {
+    int row, col, i, j, k;
+    int values[8], staged[4];
+
+    if (M == 32 && N == 32) {
+        for (row = 0; row < N; row += 8) {
+            for (col = 0; col < M; col += 8) {
+                for (i = row; i < row + 8; i++) {
+                    /* Read the full A cache line before a B store can evict it. */
+                    for (j = 0; j < 8; j++)
+                        values[j] = A[i][col + j];
+                    for (j = 0; j < 8; j++)
+                        B[col + j][i] = values[j];
+                }
+            }
+        }
+    } else if (M == 64 && N == 64) {
+        for (row = 0; row < N; row += 8) {
+            for (col = 0; col < M; col += 8) {
+                /* A row stride of eight cache lines maps rows four apart
+                   to the same set. Stage the upper-right quadrant in B. */
+                for (i = row; i < row + 4; i++) {
+                    for (j = 0; j < 8; j++)
+                        values[j] = A[i][col + j];
+                    for (j = 0; j < 4; j++) {
+                        B[col + j][i] = values[j];
+                        B[col + j][i + 4] = values[j + 4];
+                    }
+                }
+
+                /* Finish both destination rows, reading the staged values
+                   before overwriting their slots with the lower-left block. */
+                for (j = 0; j < 4; j++) {
+                    for (k = 0; k < 4; k++) {
+                        values[k] = A[row + 4 + k][col + j];
+                        values[k + 4] = A[row + 4 + k][col + j + 4];
+                    }
+                    for (k = 0; k < 4; k++)
+                        staged[k] = B[col + j][row + 4 + k];
+                    for (k = 0; k < 4; k++)
+                        B[col + j][row + 4 + k] = values[k];
+                    for (k = 0; k < 4; k++) {
+                        B[col + j + 4][row + k] = staged[k];
+                        B[col + j + 4][row + 4 + k] = values[k + 4];
+                    }
+                }
+            }
+        }
+    } else {
+        /* Narrow tiles keep a few destination rows active at a time. */
+        for (row = 0; row < N; row += 16) {
+            for (col = 0; col < M; col += 4) {
+                for (i = row; i < N && i < row + 16; i++) {
+                    for (j = 0; j < 4 && col + j < M; j++)
+                        values[j] = A[i][col + j];
+                    for (j = 0; j < 4 && col + j < M; j++)
+                        B[col + j][i] = values[j];
+                }
+            }
+        }
+    }
 }
 
 /*

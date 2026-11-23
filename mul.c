@@ -12,6 +12,8 @@
 
 int is_mul(int M, int N, int A[N][M], int B[M][N], int C[N][N]);
 
+#define MUL_BLOCK 8
+
 /*
  * mul_submit - This is the solution multiply function that you will be
  *     graded on for Part C of the assignment. Do not change the
@@ -22,6 +24,31 @@ int is_mul(int M, int N, int A[N][M], int B[M][N], int C[N][N]);
 char mul_submit_desc[] = "Multiply submission";
 void mul_submit(int M, int N, int A[N][M], int B[M][N], int C[N][N])
 {
+    /* Process eight rows of B at a time, reusing them across rows of A. */
+    for (int kk = 0; kk < M; kk += MUL_BLOCK) {
+        int k_end = M - kk < MUL_BLOCK ? M : kk + MUL_BLOCK;
+
+        for (int i = 0; i < N; i++) {
+            for (int jj = 0; jj < N; jj += MUL_BLOCK) {
+                int cols = N - jj < MUL_BLOCK ? N - jj : MUL_BLOCK;
+                int sums[MUL_BLOCK];
+
+                for (int j = 0; j < cols; j++)
+                    sums[j] = kk == 0 ? 0 : C[i][jj + j];
+
+                /* Keep the partial results local while reading B by row. */
+                for (int k = kk; k < k_end; k++) {
+                    int a = A[i][k];
+
+                    for (int j = 0; j < cols; j++)
+                        sums[j] += a * B[k][jj + j];
+                }
+
+                for (int j = 0; j < cols; j++)
+                    C[i][jj + j] = sums[j];
+            }
+        }
+    }
 }
 
 /*

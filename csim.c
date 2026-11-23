@@ -1,7 +1,6 @@
 /*
  * csim.c - Cache Lab Part A.
  *
- * Complete access_cache() so the simulator matches the supplied csim-ref.
  *     ./csim [-hv] -s <s> -E <E> -b <b> -t <tracefile>
  *
  * The cache has S = 2^s sets, E lines per set and B = 2^b byte blocks.
@@ -48,18 +47,48 @@ static void usage(const char *prog)
     printf("  linux>  %s -v -s 8 -E 2 -b 4 -t traces/yi.trace\n", prog);
 }
 
-/*
- * TODO: Simulate one data access at addr.
- * Extract the set index and tag, then update the cache state and counters
- * for a hit, a miss, or a miss with an LRU eviction. An eviction also counts
- * as a miss. Handle s == 0 and s + b == 64 without shifting by 64 bits.
- * If verbose is set, append " hit", " miss", or " miss eviction" without
- * a newline. replay() prints the trace entry and the trailing newline.
- */
+/* Simulate a data access and append its outcome when verbose mode is on. */
 static void access_cache(uint64_t addr)
 {
-    (void)addr;
-    (void)tick;
+    /* Remove the offset and the set index in separate steps. */
+    uint64_t block = b == 64 ? 0 : addr >> b;
+    uint64_t set_index = block & ((UINT64_C(1) << s) - 1);
+    uint64_t tag = block >> s;
+    line_t *set = cache + (size_t)set_index * E;
+    line_t *empty = NULL;
+    line_t *oldest = NULL;
+    uint64_t now = ++tick;
+
+    for (int i = 0; i < E; ++i) {
+        line_t *line = &set[i];
+        if (!line->valid) {
+            if (empty == NULL)
+                empty = line;
+        } else if (line->tag == tag) {
+            line->last_used = now;
+            ++hits;
+            if (verbose)
+                fputs(" hit", stdout);
+            return;
+        } else if (oldest == NULL || line->last_used < oldest->last_used) {
+            oldest = line;
+        }
+    }
+
+    ++misses;
+    if (verbose)
+        fputs(" miss", stdout);
+
+    line_t *target = empty;
+    if (target == NULL) {
+        target = oldest;
+        ++evictions;
+        if (verbose)
+            fputs(" eviction", stdout);
+    }
+    target->valid = 1;
+    target->tag = tag;
+    target->last_used = now;
 }
 
 /* replay - run every data access in the trace through the cache */
